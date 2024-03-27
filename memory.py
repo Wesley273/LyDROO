@@ -1,8 +1,8 @@
 #  #################################################################
-#  This file contains the main DROO operations, including building DNN, 
+#  This file contains the main DROO operations, including building DNN,
 #  Storing data sample, Training DNN, and generating quantized binary offloading decisions.
 
-#  version 1.0 -- February 2020. Written based on Tensorflow 2 by Weijian Pan and 
+#  version 1.0 -- February 2020. Written based on Tensorflow 2 by Weijian Pan and
 #  Liang Huang (lianghuang AT zjut.edu.cn)
 #  ###################################################################
 
@@ -13,13 +13,12 @@ import torch.nn as nn
 import numpy as np
 
 
-
 # DNN network for memory
 class MemoryDNN:
     def __init__(
         self,
         net,
-        learning_rate = 0.01,
+        learning_rate=0.01,
         training_interval=10,
         batch_size=100,
         memory_size=1000,
@@ -39,7 +38,7 @@ class MemoryDNN:
         self.memory_counter = 1
 
         # store training cost
-        self.cost_his = []
+        self.cost_history = []
 
         # initialize zero memory [h, m]
         self.memory = np.zeros((self.memory_size, self.net[0] + self.net[-1]))
@@ -49,12 +48,12 @@ class MemoryDNN:
 
     def _build_net(self):
         self.model = nn.Sequential(
-                nn.Linear(self.net[0], self.net[1]),
-                nn.ReLU(),
-                nn.Linear(self.net[1], self.net[2]),
-                nn.ReLU(),
-                nn.Linear(self.net[2], self.net[3]),
-                nn.Sigmoid()
+            nn.Linear(self.net[0], self.net[1]),
+            nn.ReLU(),
+            nn.Linear(self.net[1], self.net[2]),
+            nn.ReLU(),
+            nn.Linear(self.net[2], self.net[3]),
+            nn.Sigmoid()
         )
 
     def remember(self, h, m):
@@ -83,9 +82,8 @@ class MemoryDNN:
         h_train = torch.Tensor(batch_memory[:, 0: self.net[0]])
         m_train = torch.Tensor(batch_memory[:, self.net[0]:])
 
-
         # train the DNN
-        optimizer = optim.Adam(self.model.parameters(), lr=self.lr,betas = (0.09,0.999),weight_decay=0.0001) 
+        optimizer = optim.Adam(self.model.parameters(), lr=self.lr, betas=(0.09, 0.999), weight_decay=0.0001)
         criterion = nn.BCELoss()
         self.model.train()
         optimizer.zero_grad()
@@ -95,17 +93,16 @@ class MemoryDNN:
         optimizer.step()
 
         self.cost = loss.item()
-        assert(self.cost > 0)
-        self.cost_his.append(self.cost)
+        assert (self.cost > 0)
+        self.cost_history.append(self.cost)
 
-    def decode(self, h, k = 1, mode = 'OP'):
+    def decode(self, h, k=1, mode='OP'):
         # to have batch dimension when feed into Tensor
         h = torch.Tensor(h[np.newaxis, :])
 
         self.model.eval()
         m_pred = self.model(h)
         m_pred = m_pred.detach().numpy()
-
 
         if mode == 'OP':
             return self.knm(m_pred[0], k)
@@ -116,30 +113,30 @@ class MemoryDNN:
         else:
             print("The action selection must be 'OP' or 'KNN' or 'OPN'")
 
-    def knm(self, m, k = 1):
+    def knm(self, m, k=1):
         # return k order-preserving binary actions
         m_list = []
         # generate the ﬁrst binary ofﬂoading decision with respect to equation (8)
-        m_list.append(1*(m>0.5))
+        m_list.append(1 * (m > 0.5))
 
         if k > 1:
             # generate the remaining K-1 binary ofﬂoading decisions with respect to equation (9)
-            m_abs = abs(m-0.5)
-            idx_list = np.argsort(m_abs)[:k-1]
-            for i in range(k-1):
-                if m[idx_list[i]] >0.5:
+            m_abs = abs(m - 0.5)
+            idx_list = np.argsort(m_abs)[:k - 1]
+            for i in range(k - 1):
+                if m[idx_list[i]] > 0.5:
                     # set the \hat{x}_{t,(k-1)} to 0
-                    m_list.append(1*(m - m[idx_list[i]] > 0))
+                    m_list.append(1 * (m - m[idx_list[i]] > 0))
                 else:
                     # set the \hat{x}_{t,(k-1)} to 1
-                    m_list.append(1*(m - m[idx_list[i]] >= 0))
+                    m_list.append(1 * (m - m[idx_list[i]] >= 0))
 
         return m_list
-    
-    def opn(self, m, k= 1):
-        return self.knm(m,k)+self.knm(m+np.random.normal(0,1,len(m)),k)
 
-    def knn(self, m, k = 1):
+    def opn(self, m, k=1):
+        return self.knm(m, k) + self.knm(m + np.random.normal(0, 1, len(m)), k)
+
+    def knn(self, m, k=1):
         # list all 2^N binary offloading actions
         if len(self.enumerate_actions) == 0:
             import itertools
@@ -150,11 +147,9 @@ class MemoryDNN:
         idx = np.argsort(sqd)
         return self.enumerate_actions[idx[:k]]
 
-
     def plot_cost(self):
         import matplotlib.pyplot as plt
-        plt.plot(np.arange(len(self.cost_his))*self.training_interval, self.cost_his)
+        plt.plot(np.arange(len(self.cost_history)) * self.training_interval, self.cost_history)
         plt.ylabel('Training Loss')
         plt.xlabel('Time Frames')
         plt.show()
-

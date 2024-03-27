@@ -11,8 +11,11 @@
 #  #################################################################
 
 
-import scipy.io as sio                     # import scipy.io for .mat file I/
-import numpy as np                         # import numpy
+import math
+
+import numpy as np
+import scipy.io as sio  # import scipy.io for .mat file I/
+from tqdm import tqdm  # import numpy
 
 # Implementated based on the PyTorch
 from memory import MemoryDNN
@@ -20,13 +23,11 @@ from memory import MemoryDNN
 # replace it with your algorithm when applying LyDROO in other problems
 from ResourceAllocation import Algo1_NUM
 
-import math
-
 
 def plot_rate(rate_his, rolling_intv=50, ylabel='Normalized Computation Rate'):
+    import matplotlib as mpl
     import matplotlib.pyplot as plt
     import pandas as pd
-    import matplotlib as mpl
 
     rate_array = np.asarray(rate_his)
     df = pd.DataFrame(rate_his)
@@ -67,6 +68,7 @@ if __name__ == "__main__":
     N = 10                     # number of users
     n = 500                     # number of time frames
     K = N                   # initialize K = N
+    T = 1                   # 时隙长度
     decoder_mode = 'OPN'    # the quantization mode could be 'OP' (Order-preserving) or 'KNN' or 'OPN' (Order-Preserving with noise)
     Memory = 1024          # capacity of memory structure
     Delta = 32             # Update interval for adaptive K
@@ -101,25 +103,22 @@ if __name__ == "__main__":
                     memory_size=Memory
                     )
 
-    mode_his = []  # store the offloading mode
-    k_idx_his = []  # store the index of optimal offloading actor
+    mode_history = []  # store the offloading mode
+    k_idx_history = []  # store the index of optimal offloading actor
     Q = np.zeros((n, N))  # data queue in MbitsW
     Y = np.zeros((n, N))  # virtual energy queue in mJ
     Obj = np.zeros(n)  # objective values after solving problem (26)
     energy = np.zeros((n, N))  # energy consumption
     rate = np.zeros((n, N))  # achieved computation rate
 
-    for i in range(n):
-
-        if i % (n // 10) == 0:
-            print("%0.1f" % (i / n))
+    for i in tqdm(range(n)):  # 对n个时隙仿真
 
         if i > 0 and i % Delta == 0:
             # index counts from 0
             if Delta > 1:
-                max_k = max(np.array(k_idx_his[-Delta:-1]) % K) + 1
+                max_k = max(np.array(k_idx_history[-Delta:-1]) % K) + 1
             else:
-                max_k = k_idx_his[-1] + 1
+                max_k = k_idx_history[-1] + 1
             K = min(max_k + 1, N)
 
         i_idx = i
@@ -128,9 +127,9 @@ if __name__ == "__main__":
         h_tmp = racian_mec(h0, 0.3)
         # increase h to close to 1 for better training; it is a trick widely adopted in deep learning
         h = h_tmp * CHFACT
-        channel[i, :] = h
+        channel[i, :] = h  # TODO:把这里的信道改成卫星场景，即卫星与各地面站连接状态即可
         # real-time arrival generation
-        dataA[i, :] = np.random.exponential(arrival_lambda)
+        dataA[i, :] = T * np.random.exponential(arrival_lambda)
 
         # 4) ‘Queueing module’ of LyDROO
         if i_idx > 0:
@@ -158,15 +157,15 @@ if __name__ == "__main__":
             v_list.append(r_list[-1][0])
 
         # record the index of largest reward
-        k_idx_his.append(np.argmax(v_list))
+        k_idx_history.append(np.argmax(v_list))
 
         # 3) 'Policy update module' of LyDROO
         # encode the mode with largest reward
-        mem.encode(nn_input, m_list[k_idx_his[-1]])
-        mode_his.append(m_list[k_idx_his[-1]])
+        mem.encode(nn_input, m_list[k_idx_history[-1]])
+        mode_history.append(m_list[k_idx_history[-1]])
 
         # store max result
-        Obj[i_idx], rate[i_idx, :], energy[i_idx, :] = r_list[k_idx_his[-1]]
+        Obj[i_idx], rate[i_idx, :], energy[i_idx, :] = r_list[k_idx_history[-1]]
 
     mem.plot_cost()
 
@@ -175,4 +174,4 @@ if __name__ == "__main__":
 
     # save all data
     sio.savemat('./result_%d.mat' % N, {'input_h': channel / CHFACT, 'data_arrival': dataA, 'data_queue': Q, 'energy_queue': Y,
-                'off_mode': mode_his, 'rate': rate, 'energy_consumption': energy, 'data_rate': rate, 'objective': Obj})
+                'off_mode': mode_history, 'rate': rate, 'energy_consumption': energy, 'data_rate': rate, 'objective': Obj})
